@@ -10,17 +10,20 @@
 #include "pico/stdlib.h"
 #include "pico/util/datetime.h"
 #include "ws2812.h"
+#include "llado_time.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#define SECOND  (1U)
-#define MINUTE  (60U*SECOND)
-#define HOUR    (60U*MINUTE)
-
-#define START_TIME  (16U*HOUR + 14U*MINUTE + 0U*SECOND)  // time of day at boot
+#define START_TIME  time_to_int(12U, 0U, 0U)  // time of day at boot
 
 #define PIN_BUTTON  22U
 #define PIN_LEDS    26U
+
+#define COLOR_SCHEDULED_ON  brightness(COLOR_GREEN,   0.3F)
+#define COLOR_SCHEDULED_OFF brightness(COLOR_RED,     0.5F)
+#define COLOR_MANUAL_ON     brightness(COLOR_YELLOW,  0.4F)
+#define COLOR_MANUAL_OFF    brightness(COLOR_ORANGE,  0.5F)
+
 
 bool global_schedule_on{false};
 bool global_manual_override{false};
@@ -31,13 +34,16 @@ struct RunPeriod {
 };
 
 std::vector<RunPeriod> heater_run_times{
-  {.start_time = 5U*HOUR + 30U*MINUTE,
-   .stop_time  = 8U*HOUR},
-  {.start_time = 17U*HOUR,
-   .stop_time  = 22U*HOUR}
+  {.start_time = time_to_int( 5U, 30U),
+   .stop_time  = time_to_int( 8U,  0U)},
+  {.start_time = time_to_int(17U,  0U),
+   .stop_time  = time_to_int(22U,  0U)}
 };
 
-enum LogicType {direct, inverted};
+enum LogicType {
+  direct,
+  inverted
+};
 
 class Load {
 public:
@@ -90,7 +96,7 @@ bool button_pressed_raw(void) {
 bool button_pressed_debounced(const bool button_pressed_this_tick) {
   static bool button_pressed_last_tick{false};
 
-  const bool output = (button_pressed_this_tick && !button_pressed_last_tick);\
+  const bool output = (button_pressed_this_tick && !button_pressed_last_tick);
   button_pressed_last_tick = button_pressed_this_tick;
 
   return output;
@@ -98,24 +104,27 @@ bool button_pressed_debounced(const bool button_pressed_this_tick) {
 
 uint32_t get_color_from_state() {
   uint32_t output{0U};
+
   if (global_schedule_on) {
     if (global_manual_override) {
-      output = COLOR_ORANGE;
+      output = COLOR_MANUAL_OFF;
     } else {
-      output = COLOR_GREEN;
+      output = COLOR_SCHEDULED_ON;
     }
   } else {
     if (global_manual_override) {
-      output = COLOR_YELLOW;
+      output = COLOR_MANUAL_ON;
     } else {
-      output = COLOR_RED;
+      output = COLOR_SCHEDULED_OFF;
     }
   }
+  
   return output;
 }
 
-void heater_update(uint32_t now) {
+void heater_update(const uint32_t now) {
   static bool heaters_scheduled_on_last_cycle{false};
+
   bool heaters_scheduled_on_this_cycle{false};
 
   for (auto heater_run_time : heater_run_times) {
@@ -140,10 +149,6 @@ void heater_update(uint32_t now) {
   heaters_scheduled_on_last_cycle = heaters_scheduled_on_this_cycle;
 }
 
-uint32_t time_of_day_sec(datetime_t& now) {
-  return now.hour*HOUR + now.min*MINUTE + now.sec*SECOND;
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 int main() {
@@ -153,14 +158,13 @@ int main() {
     .month = 1U,
     .day   = 1U,
     .dotw  = 0U,
-    .hour  = (START_TIME/HOUR),
-    .min   = ((START_TIME%HOUR)/MINUTE),
-    .sec   = (START_TIME%MINUTE)
+    .hour  = (START_TIME / HOUR),
+    .min   = ((START_TIME % HOUR) / MINUTE),
+    .sec   = (START_TIME % MINUTE)
   };
 
   rtc_init();
   rtc_set_datetime(&now);
-  uint32_t prev_sec{now.sec};
 
   init_button();
   init_ws2812(PIN_LEDS);
@@ -175,7 +179,7 @@ int main() {
     }
 
     update_ws2812({button_pressed_now ? COLOR_WHITE : get_color_from_state()});
-    heater_update(time_of_day_sec(now));
+    heater_update(time_to_int(now.hour, now.min, now.sec));
 
     sleep_ms(100U);
   }
