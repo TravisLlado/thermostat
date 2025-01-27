@@ -19,10 +19,11 @@
 #define PIN_BUTTON  22U
 #define PIN_LEDS    26U
 
-#define COLOR_SCHEDULED_ON  brightness(COLOR_GREEN,   0.3F)
-#define COLOR_SCHEDULED_OFF brightness(COLOR_RED,     0.5F)
-#define COLOR_MANUAL_ON     brightness(COLOR_YELLOW,  0.4F)
-#define COLOR_MANUAL_OFF    brightness(COLOR_ORANGE,  0.5F)
+#define COLOR_SCHEDULED_ON  brightness(COLOR_GREEN,   0.15F )
+#define COLOR_SCHEDULED_OFF brightness(COLOR_RED,     0.25F )
+#define COLOR_MANUAL_ON     brightness(COLOR_YELLOW,  0.2F  )
+#define COLOR_MANUAL_OFF    brightness(COLOR_ORANGE,  0.25F )
+#define COLOR_PRESSED       brightness(COLOR_WHITE,   0.5F  )
 
 
 bool global_schedule_on{false};
@@ -178,7 +179,7 @@ int main() {
       global_manual_override = !global_manual_override;
     }
 
-    update_ws2812({button_pressed_now ? COLOR_WHITE : get_color_from_state()});
+    update_ws2812({button_pressed_now ? COLOR_PRESSED : get_color_from_state()});
     heater_update(time_to_int(now.hour, now.min, now.sec));
 
     sleep_ms(100U);
