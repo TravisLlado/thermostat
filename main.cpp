@@ -19,11 +19,11 @@
 #define PIN_BUTTON  22U
 #define PIN_LEDS    26U
 
-#define COLOR_SCHEDULED_ON  brightness(COLOR_GREEN,   0.15F )
+#define COLOR_SCHEDULED_ON  brightness(COLOR_GREEN,   0.10F )
 #define COLOR_SCHEDULED_OFF brightness(COLOR_RED,     0.25F )
-#define COLOR_MANUAL_ON     brightness(COLOR_YELLOW,  0.2F  )
+#define COLOR_MANUAL_ON     brightness(COLOR_YELLOW,  0.15F )
 #define COLOR_MANUAL_OFF    brightness(COLOR_ORANGE,  0.25F )
-#define COLOR_PRESSED       brightness(COLOR_WHITE,   0.5F  )
+#define COLOR_PRESSED       brightness(COLOR_WHITE,   0.40F )
 
 
 bool global_schedule_on{false};
