@@ -1,3 +1,5 @@
 build/
 deprecated/
 .DS_Store
+credentials.h
+
