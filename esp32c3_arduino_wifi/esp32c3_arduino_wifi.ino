@@ -26,39 +26,39 @@ constexpr int NUM_LEDS = 1;
 Adafruit_NeoPixel global_leds(NUM_LEDS, PIN_WS2812, NEO_GRB + NEO_KHZ800);
 
 // LED Colors (0xRRGGBB)
-constexpr uint32_t COLOR_HEATER_ON  = 0x003000; // Green
-constexpr uint32_t COLOR_HEATER_OFF = 0x301500; // Orange
-constexpr uint32_t COLOR_CANCELLED  = 0x200000; // Red
-constexpr uint32_t COLOR_STARTUP    = 0x400040; // Magenta
-constexpr uint32_t COLOR_BUTTON_PRESSED = 0x404040; // White
+constexpr uint32_t COLOR_ON       = 0x002000; // Green
+constexpr uint32_t COLOR_OFF      = 0x251200; // Orange
+constexpr uint32_t COLOR_DISABLED = 0x150000; // Red
+constexpr uint32_t COLOR_STARTUP  = 0x400040; // Magenta
+constexpr uint32_t COLOR_BUTTON   = 0x303030; // White
 
 // Button Timing
-constexpr unsigned long LONG_PRESS_DURATION_MS = 2000;
+constexpr unsigned long LONG_PRESS_DURATION_MS = 1500;
 constexpr unsigned long DEBOUNCE_TIME_MS = 50;
 
 // NTP Sync
-constexpr time_t NTP_RESYNC_INTERVAL_S = 24 * HR;
+constexpr time_t NTP_RESYNC_INTERVAL_S = 24*HR;
 constexpr int RESYNC_HOUR = 2;
-constexpr int WIFI_TIMEZONE_OFFSET_S = -8 * HR;
-constexpr int WIFI_DAYLIGHT_OFFSET_S = 1 * HR;
+constexpr int WIFI_TIMEZONE_OFFSET_S = -8*HR;
+constexpr int WIFI_DAYLIGHT_OFFSET_S = 1*HR;
 
 // Pulse Settings
-constexpr float PULSE_FREQUENCY_HZ = 0.33F;
-constexpr float PULSE_PERIOD_MS = 1000.0F / PULSE_FREQUENCY_HZ;
-constexpr float PULSE_MIN_BRIGHTNESS = 0.3F;
+constexpr float PULSE_FREQUENCY_HZ = 0.5F;
+constexpr float PULSE_PERIOD_MS = 1000.0F/PULSE_FREQUENCY_HZ;
+constexpr float PULSE_MIN_BRIGHTNESS = 0.5F;
 constexpr float PULSE_MAX_BRIGHTNESS = 1.0F;
 
 // Nighttime Brightness
 constexpr float NIGHT_BRIGHTNESS_FACTOR = 0.25F;
 constexpr int NIGHT_START_HOUR = 22;
-constexpr int NIGHT_END_HOUR = 6;
+constexpr int NIGHT_END_HOUR = 7;
 
 // Timing Constants
 constexpr unsigned long MILLIS_PER_SECOND = 1000;
 constexpr unsigned long LOOP_DELAY_MS = 20;
 
 // Color extraction macro
-#define RGB(x) ((x) >> 16) & 0xFF, ((x) >> 8) & 0xFF, (x) & 0xFF
+#define RGB(x) (((x) >> 16) & 0xFF), (((x) >> 8) & 0xFF), ((x) & 0xFF)
 
 // Schedule Times (seconds since midnight)
 struct RunPeriod {
@@ -71,8 +71,8 @@ struct RunPeriod {
 };
 
 constexpr RunPeriod RUN_PERIODS[] = {
-  { 5 * HR + 30 * MIN, 8 * HR },
-  { 17 * HR, 22 * HR }
+  { 5*HR + 30*MIN, 8*HR },
+  { 17*HR,         22*HR }
 };
 
 // ========================== Globals ==========================
@@ -81,14 +81,14 @@ bool global_schedule_on = false;
 bool global_manual_override = false;
 bool global_program_cancelled = false;
 
-unsigned long global_last_ntp_sync = 0;
+unsigned long global_last_ntp_sync = 0U;
 
 // ========================== Helper Functions ==========================
 
 int seconds_since_midnight() {
   struct tm timeinfo;
   getLocalTime(&timeinfo);
-  return timeinfo.tm_hour * HR + timeinfo.tm_min * MIN + timeinfo.tm_sec * SEC;
+  return timeinfo.tm_hour*HR + timeinfo.tm_min*MIN + timeinfo.tm_sec*SEC;
 }
 
 bool is_schedule_on_now() {
@@ -103,14 +103,14 @@ float get_brightness_factor() {
   struct tm timeinfo;
   getLocalTime(&timeinfo);
   const int hour = timeinfo.tm_hour;
-  return (hour >= NIGHT_START_HOUR || hour < NIGHT_END_HOUR) ? NIGHT_BRIGHTNESS_FACTOR : 1.0F;
+  return (((hour >= NIGHT_START_HOUR) || (hour < NIGHT_END_HOUR)) ? NIGHT_BRIGHTNESS_FACTOR : 1.0F);
 }
 
 uint32_t brightness_modulated_color(uint32_t color, float brightness) {
   return global_leds.Color(
-    static_cast<uint8_t>(((color >> 16) & 0xFF) * brightness),
-    static_cast<uint8_t>(((color >> 8) & 0xFF) * brightness),
-    static_cast<uint8_t>((color & 0xFF) * brightness)
+    static_cast<uint8_t>(((color >> 16) & 0xFF)*brightness),
+    static_cast<uint8_t>(((color >> 8) & 0xFF)*brightness),
+    static_cast<uint8_t>((color & 0xFF)*brightness)
   );
 }
 
@@ -126,7 +126,7 @@ void sync_ntp() {
 }
 
 void handle_button_press() {
-  global_leds.setPixelColor(0, global_leds.Color(RGB(COLOR_BUTTON_PRESSED)));
+  global_leds.setPixelColor(0, global_leds.Color(RGB(brightness_modulated_color(COLOR_BUTTON, get_brightness_factor()))));
   global_leds.show();
 
   const auto start_time = millis();
@@ -134,7 +134,7 @@ void handle_button_press() {
     if (digitalRead(PIN_BUTTON)) {
       break; // Button released early
     }
-    delay(10);
+    delay(LOOP_DELAY_MS);
   }
 
   const auto press_duration = millis() - start_time;
@@ -150,13 +150,13 @@ void handle_button_press() {
 }
 
 void apply_state() {
-  const bool heater_on = !global_program_cancelled && (global_schedule_on || global_manual_override);
+  const bool heater_on = !global_program_cancelled && (global_schedule_on ^ global_manual_override);
 
-  const uint32_t base_color = global_program_cancelled ? COLOR_CANCELLED :
-                              heater_on ? COLOR_HEATER_ON : COLOR_HEATER_OFF;
+  const uint32_t base_color = (global_program_cancelled ? COLOR_DISABLED :
+                              (heater_on ? COLOR_ON : COLOR_OFF));
 
-  digitalWrite(PIN_RELAY1, heater_on ? RELAY_ON : RELAY_OFF);
-  digitalWrite(PIN_RELAY2, heater_on ? RELAY_ON : RELAY_OFF);
+  digitalWrite(PIN_RELAY1, (heater_on ? RELAY_ON : RELAY_OFF));
+  digitalWrite(PIN_RELAY2, (heater_on ? RELAY_ON : RELAY_OFF));
 
   float brightness = get_brightness_factor();
 
