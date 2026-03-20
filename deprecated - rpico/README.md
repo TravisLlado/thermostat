@@ -1,9 +1,0 @@
-# thermostat
-
-The thermostat in my apartment was awful, just a bimetallic element connected to wires. It was so inaccurate, basically it was either full-on-24/7 or full-off-24/7. So that meant I had to manually turn it on and off every day, and I wouldn't turn it on until it was already cold and then it would take an hour to warm up, and I wouldn't turn it off until I thought about it and by then it had been running unnecessarily for hours. And oh, did I mention, my electric bill is $50/month during the summer and $400/month during the winter, 100% due to the electric heaters? So it was a priority to automate this thing. Even having it run half time would save $175/month.
-
-I'm in a really old building, and I don't actually have permission from my landlord to do this, so I didn't want to do anything major or permanent and I didn't want to drill any new holes in the walls. Also, I don't know why the thermostat closes two parallel sets of contacts. But I knew that closing two parallel sets of contacts was all I needed to do. And then do that on a schedule every day.
-
-So I looked through my parts bins and grabbed a Rasberry Pi Pico and a moderate-capacity relay board and wrote a little program to turn on the heaters every morning and evening. Morning because the odds of me sleeping through my alarm are high if it's just too damn cold and evening because it gets much colder in my apartment after sunset. That was easy enough.
-
-Then I decided there are extra-cold days (not actually that cold, but I'm in a giant 115-year-old house with super-high ceilings and no insulation in the walls) where I want to manually turn on the heater, and I don't want to have to hook up my computer and reflash the RPico to turn on the heater. So I added a button to override the schedule, on or off, and an LED to indicate state. Then I printed a box to hold it all. It's pretty neat.
