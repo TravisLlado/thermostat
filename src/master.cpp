@@ -243,8 +243,8 @@ void printFullStatus(Print& out) {
 // ============================================================================
 
 void applyState() {
-  // While button is physically held, show button-press feedback color
-  if (button.isPressed()) {
+  // While button is physically held (before long press fires), show button-press feedback color
+  if (button.isPressed() && !button.longPressFired()) {
     leds.setPixelColor(0, brightnessModulatedColor(COLOR_BUTTON, getBrightnessFactor()));
     leds.show();
     return;

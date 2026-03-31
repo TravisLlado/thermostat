@@ -29,6 +29,7 @@ public:
     bool isPressed() const;
     bool wasPressed() const;    // Returns true once per press
     bool wasReleased() const;   // Returns true once per release
+    bool longPressFired() const; // True if long press callback has already fired
     uint32_t getPressTime() const; // How long current press has lasted (ms)
 
 private:

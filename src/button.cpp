@@ -89,6 +89,10 @@ bool Button::wasReleased() const {
     return release_edge;
 }
 
+bool Button::longPressFired() const {
+    return long_press_fired;
+}
+
 uint32_t Button::getPressTime() const {
     if (current_state && press_start_time > 0) {
         return millis() - press_start_time;
