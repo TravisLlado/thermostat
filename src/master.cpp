@@ -35,8 +35,9 @@ void buttonLongPress();
 void applyState();
 void fetchGeoBlocking();
 bool syncTimeAndForecast();
-bool evaluateHeaterDay();
-float getMinForecastDuringSchedule();
+bool evaluatePeriodForecast(int periodIdx);
+float getMinForecastForPeriod(int periodIdx);
+int   currentPeriodIndex();
 const char* currentColorName();
 String nextScheduleTransition();
 void printFullStatus(Print& out);
@@ -57,7 +58,6 @@ Button button(PIN_BTN, BUTTON_DEBOUNCE_MS, BUTTON_SHORT_PRESS_MS, BUTTON_LONG_PR
 bool g_schedule_on       {false}; // Schedule says heater should be on right now
 bool g_manual_override   {false}; // XOR toggle via short press
 bool g_program_cancelled {false}; // Long press disables everything
-bool g_heater_day        {true};  // Forecast warrants heating today (default true)
 
 // Time tracking
 int32_t g_currentTime {0};
@@ -116,14 +116,6 @@ bool evaluatePeriodForecast(int periodIdx) {
   return false;
 }
 
-// Check whether forecast temps during ANY run period fall below threshold
-bool evaluateHeaterDay() {
-  for (int i = 0; i < NUM_RUN_PERIODS; i++) {
-    if (evaluatePeriodForecast(i)) return true;
-  }
-  return false;
-}
-
 // Check if we're currently in a scheduled period AND that period's forecast is cold
 bool isScheduleOnWithForecast() {
   for (int i = 0; i < NUM_RUN_PERIODS; i++) {
@@ -134,18 +126,24 @@ bool isScheduleOnWithForecast() {
   return false;
 }
 
-// Find the minimum forecast temperature during all scheduled run periods
-float getMinForecastDuringSchedule() {
+// Find the minimum forecast temperature during a specific run period
+float getMinForecastForPeriod(int periodIdx) {
   float minTemp = 999.0F;
-  for (int i = 0; i < NUM_RUN_PERIODS; i++) {
-    int startHour = RUN_PERIODS[i].start / HOUR;
-    int endHour   = (RUN_PERIODS[i].end + HOUR - 1) / HOUR;
-    if (endHour > 24) endHour = 24;
-    for (int h = startHour; h < endHour; h++) {
-      if (g_forecast[h] < minTemp) minTemp = g_forecast[h];
-    }
+  int startHour = RUN_PERIODS[periodIdx].start / HOUR;
+  int endHour   = (RUN_PERIODS[periodIdx].end + HOUR - 1) / HOUR;
+  if (endHour > 24) endHour = 24;
+  for (int h = startHour; h < endHour; h++) {
+    if (g_forecast[h] < minTemp) minTemp = g_forecast[h];
   }
   return minTemp;
+}
+
+// Find the current run period index, or -1 if outside all periods
+int currentPeriodIndex() {
+  for (int i = 0; i < NUM_RUN_PERIODS; i++) {
+    if (RUN_PERIODS[i].contains(g_currentTime)) return i;
+  }
+  return -1;
 }
 
 const char* currentColorName() {
@@ -206,7 +204,13 @@ void printFullStatus(Print& out) {
              isScheduleOnNow() ? "INSIDE" : "OUTSIDE");
   out.printf("manual_override:   %s\n", g_manual_override ? "true" : "false");
   out.printf("program_cancelled: %s\n", g_program_cancelled ? "true" : "false");
-  out.printf("heater_day:        %s\n", g_heater_day ? "true (COLD forecast)" : "false (WARM forecast)");
+  int curPeriod = currentPeriodIndex();
+  if (curPeriod >= 0) {
+    bool cold = evaluatePeriodForecast(curPeriod);
+    out.printf("current_period:    %d [%s]\n", curPeriod + 1, cold ? "COLD -> heat" : "WARM -> skip");
+  } else {
+    out.printf("current_period:    none\n");
+  }
   out.println("--- Schedule ---");
   for (int i = 0; i < NUM_RUN_PERIODS; i++) {
     char startBuf[9], endBuf[9];
@@ -222,9 +226,11 @@ void printFullStatus(Print& out) {
   out.println("--- Forecast ---");
   out.printf("Threshold:  %.0f°F\n", TEMP_THRESHOLD_F);
   if (g_forecastValid) {
-    float minSched = getMinForecastDuringSchedule();
-    out.printf("Low during schedule: %.1f°F %s\n", minSched,
-               minSched < TEMP_THRESHOLD_F ? "(BELOW threshold -> heat)" : "(ABOVE threshold -> skip)");
+    for (int i = 0; i < NUM_RUN_PERIODS; i++) {
+      float minP = getMinForecastForPeriod(i);
+      out.printf("Period %d low: %.1f°F %s\n", i + 1, minP,
+                 minP < TEMP_THRESHOLD_F ? "(BELOW -> heat)" : "(ABOVE -> skip)");
+    }
     out.print("Hourly (°F):  ");
     for (int i = 0; i < 24; i++) {
       out.printf("%02d:%4.0f  ", i, g_forecast[i]);
@@ -335,18 +341,20 @@ bool syncTimeAndForecast() {
   if (WebInfo::fetchHourlyForecast(geoLat, geoLon, temps)) {
     memcpy(g_forecast, temps, sizeof(g_forecast));
     g_forecastValid = true;
-    g_heater_day = evaluateHeaterDay();
 
     float minTemp = temps[0], maxTemp = temps[0];
     for (int i = 1; i < 24; i++) {
       if (temps[i] < minTemp) minTemp = temps[i];
       if (temps[i] > maxTemp) maxTemp = temps[i];
     }
-    Serial.printf("Forecast: %.0f-%.0f°F, heater_day=%s\n",
-                  minTemp, maxTemp, g_heater_day ? "YES" : "NO");
+    Serial.printf("Forecast: %.0f-%.0f°F\n", minTemp, maxTemp);
+    for (int i = 0; i < NUM_RUN_PERIODS; i++) {
+      float pMin = getMinForecastForPeriod(i);
+      Serial.printf("  Period %d low: %.0f°F -> %s\n", i + 1, pMin,
+                     pMin < TEMP_THRESHOLD_F ? "HEAT" : "SKIP");
+    }
   } else {
-    Serial.println("Forecast fetch failed, defaulting to heater_day=true");
-    g_heater_day = true;
+    Serial.println("Forecast fetch failed, defaulting to heat");
   }
   return true;
 }
@@ -546,7 +554,8 @@ void loop() {
     serialMsg += heater_on ? "ON" : "OFF";
     if (g_program_cancelled) serialMsg += " [DISABLED]";
     if (g_manual_override) serialMsg += " [OVERRIDE]";
-    if (!g_heater_day) serialMsg += " [WARM DAY]";
+    int cp = currentPeriodIndex();
+    if (cp >= 0 && !evaluatePeriodForecast(cp)) serialMsg += " [WARM PERIOD]";
     Serial.println(serialMsg);
 
     // Verbose output for WebSerial
@@ -565,12 +574,19 @@ void loop() {
     ws += g_manual_override ? "Y" : "N";
     ws += " | cancelled=";
     ws += g_program_cancelled ? "Y" : "N";
-    ws += " | heater_day=";
-    ws += g_heater_day ? "Y" : "N";
-    if (g_forecastValid) {
-      char buf[16];
-      snprintf(buf, sizeof(buf), " | sched_low=%.0f°F", getMinForecastDuringSchedule());
-      ws += buf;
+    int wcp = currentPeriodIndex();
+    if (wcp >= 0) {
+      bool cold = evaluatePeriodForecast(wcp);
+      ws += " | period=";
+      ws += String(wcp + 1);
+      ws += cold ? " [COLD]" : " [WARM]";
+      if (g_forecastValid) {
+        char buf[24];
+        snprintf(buf, sizeof(buf), " | period_low=%.0f°F", getMinForecastForPeriod(wcp));
+        ws += buf;
+      }
+    } else {
+      ws += " | period=none";
     }
     ws += " | next=";
     ws += nextScheduleTransition();
