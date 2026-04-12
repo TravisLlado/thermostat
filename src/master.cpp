@@ -104,15 +104,31 @@ uint32_t brightnessModulatedColor(uint32_t color, float brightness) {
   );
 }
 
-// Check whether forecast temps during any run period fall below threshold
-bool evaluateHeaterDay() {
+// Check whether forecast temps during a specific run period fall below threshold
+bool evaluatePeriodForecast(int periodIdx) {
   if (!g_forecastValid) return true; // heat by default if no forecast available
+  int startHour = RUN_PERIODS[periodIdx].start / HOUR;
+  int endHour   = (RUN_PERIODS[periodIdx].end + HOUR - 1) / HOUR;
+  if (endHour > 24) endHour = 24;
+  for (int h = startHour; h < endHour; h++) {
+    if (g_forecast[h] < TEMP_THRESHOLD_F) return true;
+  }
+  return false;
+}
+
+// Check whether forecast temps during ANY run period fall below threshold
+bool evaluateHeaterDay() {
   for (int i = 0; i < NUM_RUN_PERIODS; i++) {
-    int startHour = RUN_PERIODS[i].start / HOUR;
-    int endHour   = (RUN_PERIODS[i].end + HOUR - 1) / HOUR;
-    if (endHour > 24) endHour = 24;
-    for (int h = startHour; h < endHour; h++) {
-      if (g_forecast[h] < TEMP_THRESHOLD_F) return true;
+    if (evaluatePeriodForecast(i)) return true;
+  }
+  return false;
+}
+
+// Check if we're currently in a scheduled period AND that period's forecast is cold
+bool isScheduleOnWithForecast() {
+  for (int i = 0; i < NUM_RUN_PERIODS; i++) {
+    if (RUN_PERIODS[i].contains(g_currentTime)) {
+      return evaluatePeriodForecast(i);
     }
   }
   return false;
@@ -196,7 +212,9 @@ void printFullStatus(Print& out) {
     char startBuf[9], endBuf[9];
     formatTimeOfDay(RUN_PERIODS[i].start, startBuf);
     formatTimeOfDay(RUN_PERIODS[i].end, endBuf);
-    out.printf("  Period %d: %s - %s", i + 1, startBuf, endBuf);
+    bool periodCold = evaluatePeriodForecast(i);
+    out.printf("  Period %d: %s - %s [%s]", i + 1, startBuf, endBuf,
+               periodCold ? "COLD" : "WARM");
     if (RUN_PERIODS[i].contains(g_currentTime)) out.print(" << ACTIVE");
     out.println();
   }
@@ -428,7 +446,7 @@ void setup() {
     g_currentTime = timeinfo.tm_hour * HOUR +
                     timeinfo.tm_min * MINUTE +
                     timeinfo.tm_sec;
-    g_schedule_on = g_heater_day && isScheduleOnNow();
+    g_schedule_on = isScheduleOnWithForecast();
   }
 
   // Start WebSerial
@@ -502,7 +520,7 @@ void loop() {
     }
 
     // Update schedule state — reset manual override on transitions
-    const bool currentSchedule = g_heater_day && isScheduleOnNow();
+    const bool currentSchedule = isScheduleOnWithForecast();
     if (currentSchedule != g_schedule_on) {
       g_manual_override = false;
       g_schedule_on = currentSchedule;
