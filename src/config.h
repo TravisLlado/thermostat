@@ -13,7 +13,7 @@ constexpr int32_t DAY{24 * HOUR};
 
 // Network /////////////////////////////////////////////////////////////////////
 
-constexpr const char* MDNS_HOSTNAME {"thermostat"};
+constexpr const char* MDNS_HOSTNAME {"esp32-thermostat"};
 constexpr uint16_t    SERVER_PORT   {80};
 
 // Serial baud rate

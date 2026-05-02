@@ -422,6 +422,7 @@ void setup() {
   button.begin();
 
   // Connect to WiFi — retry indefinitely
+  WiFi.setHostname(MDNS_HOSTNAME);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   while (WiFi.waitForConnectResult() != WL_CONNECTED) {
     Serial.println("WiFi failed, retrying in 5s...");
