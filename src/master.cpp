@@ -55,7 +55,8 @@ Button button(PIN_BTN, BUTTON_DEBOUNCE_MS, BUTTON_SHORT_PRESS_MS, BUTTON_LONG_PR
               Button::ACTIVE_LOW, buttonShortPress, buttonLongPress);
 
 // Heater state
-bool g_schedule_on       {false}; // Schedule says heater should be on right now
+bool g_in_period         {false}; // Currently inside a run period (ignoring forecast)
+bool g_schedule_on       {false}; // Schedule says heater should be on right now (period + forecast)
 bool g_manual_override   {false}; // XOR toggle via short press
 bool g_program_cancelled {false}; // Long press disables everything
 
@@ -455,6 +456,7 @@ void setup() {
     g_currentTime = timeinfo.tm_hour * HOUR +
                     timeinfo.tm_min * MINUTE +
                     timeinfo.tm_sec;
+    g_in_period   = isScheduleOnNow();
     g_schedule_on = isScheduleOnWithForecast();
   }
 
@@ -528,12 +530,18 @@ void loop() {
       }
     }
 
-    // Update schedule state — reset manual override on transitions
+    // Update schedule state — reset manual override on period boundary transitions
+    const bool currentInPeriod = isScheduleOnNow();
     const bool currentSchedule = isScheduleOnWithForecast();
-    if (currentSchedule != g_schedule_on) {
+    if (currentInPeriod != g_in_period) {
+      // A period boundary was crossed: cancel the override and sync state
       g_manual_override = false;
+      g_in_period   = currentInPeriod;
       g_schedule_on = currentSchedule;
-      Serial.printf("Schedule transition: schedule_on=%d\n", g_schedule_on);
+      Serial.printf("Schedule transition: in_period=%d, schedule_on=%d\n", g_in_period, g_schedule_on);
+    } else if (currentSchedule != g_schedule_on) {
+      // Forecast changed within same period state (e.g. daily refresh) — update without clearing override
+      g_schedule_on = currentSchedule;
     }
   }
 
