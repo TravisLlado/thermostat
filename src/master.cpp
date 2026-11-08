@@ -480,6 +480,9 @@ void setup() {
 // ============================================================================
 
 void loop() {
+  // Flush buffered WebSerial output to connected clients
+  WebSerial.loop();
+
   const unsigned long now{millis()};
 
   // Update button (handles debouncing and triggers callbacks)

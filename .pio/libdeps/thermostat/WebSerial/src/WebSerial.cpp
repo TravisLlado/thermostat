@@ -217,8 +217,8 @@ void WebSerialClass::_send(const uint8_t* buffer, size_t size) {
 #else // WSL_HIGH_PERF
 
 bool WebSerialClass::_has_enough_space(size_t size) {
-  // Check if total packet size exceeds buffer limit
-  return (_buffer_offset + WSL_CALC_LOG_PACKET_SIZE(size) > WSL_BUFFER_SIZE);
+  // Check if total packet size fits within buffer limit
+  return (_buffer_offset + WSL_CALC_LOG_PACKET_SIZE(size) <= WSL_BUFFER_SIZE);
 }
 
 size_t WebSerialClass::_write_row(uint8_t *data, size_t len) {
