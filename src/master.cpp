@@ -21,7 +21,7 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <ESPAsyncWebServer.h>
-#include <WebSerial.h>
+#include <WebConsole.h>
 #include <Adafruit_NeoPixel.h>
 #include <time.h>
 #include "config.h"
@@ -41,11 +41,18 @@ int   currentPeriodIndex();
 const char* currentColorName();
 String nextScheduleTransition();
 void printFullStatus(Print& out);
-void onWebSerialMessage(uint8_t* data, size_t len);
+void onConsoleLine(const char* line, size_t len);
+void handleCommand(const char* line);
 void formatTimeOfDay(int32_t timeOfDay, char* buffer);
 
-// HTTP server
+// HTTP server and browser console
 AsyncWebServer server(SERVER_PORT);
+WebConsole     console;
+
+// Line received from the console, handed from the AsyncTCP task to loop()
+portMUX_TYPE consoleLineMux = portMUX_INITIALIZER_UNLOCKED;
+char         pendingConsoleLine[64];
+bool         hasPendingConsoleLine {false};
 
 // WS2812 LED
 Adafruit_NeoPixel leds(NUM_LEDS, PIN_WS2812, NEO_GRB + NEO_KHZ800);
@@ -361,12 +368,23 @@ bool syncTimeAndForecast() {
 }
 
 // ============================================================================
-// WebSerial command handler
+// Console command handling
 // ============================================================================
 
-void onWebSerialMessage(uint8_t* data, size_t len) {
-  String cmd;
-  for (size_t i{0}; i < len; i++) cmd += (char)data[i];
+// Runs on the AsyncTCP task: only copy the line, loop() acts on it
+void onConsoleLine(const char* line, size_t len) {
+  if (len >= sizeof(pendingConsoleLine)) len = sizeof(pendingConsoleLine) - 1;
+  portENTER_CRITICAL(&consoleLineMux);
+  if (!hasPendingConsoleLine) {
+    memcpy(pendingConsoleLine, line, len);
+    pendingConsoleLine[len] = '\0';
+    hasPendingConsoleLine = true;
+  }
+  portEXIT_CRITICAL(&consoleLineMux);
+}
+
+void handleCommand(const char* line) {
+  String cmd {line};
   cmd.trim();
   cmd.toLowerCase();
 
@@ -374,28 +392,28 @@ void onWebSerialMessage(uint8_t* data, size_t len) {
     g_manual_override = !g_schedule_on; // force heater on
     g_program_cancelled = false;
     applyState();
-    WebSerial.println("Heater forced ON");
+    console.println("Heater forced ON");
   } else if (cmd == "off") {
     g_manual_override = g_schedule_on; // force heater off
     g_program_cancelled = false;
     applyState();
-    WebSerial.println("Heater forced OFF");
+    console.println("Heater forced OFF");
   } else if (cmd == "enable") {
     g_program_cancelled = false;
     g_manual_override = false;
     applyState();
-    WebSerial.println("Heater enabled");
+    console.println("Heater enabled");
   } else if (cmd == "disable") {
     g_program_cancelled = true;
     g_manual_override = false;
     applyState();
-    WebSerial.println("Heater disabled");
+    console.println("Heater disabled");
   } else if (cmd == "status") {
-    printFullStatus(WebSerial);
+    printFullStatus(console);
   } else if (cmd == "help" || cmd == "?") {
-    WebSerial.println("Commands: on, off, enable, disable, status, help");
+    console.println("Commands: on, off, enable, disable, status, help");
   } else if (cmd.length() > 0) {
-    WebSerial.println("Unknown command. Type 'help' for commands.");
+    console.println("Unknown command. Type 'help' for commands.");
   }
 }
 
@@ -460,18 +478,17 @@ void setup() {
     g_schedule_on = isScheduleOnWithForecast();
   }
 
-  // Start WebSerial
-  WebSerial.onMessage(onWebSerialMessage);
-  WebSerial.begin(&server, "/");
+  // Start browser console
+  console.begin(server, "/", onConsoleLine);
   server.begin();
 
-  WebSerial.println("Thermostat ready.");
-  WebSerial.println(String("URL: http://") + MDNS_HOSTNAME + ".local/");
-  WebSerial.println("Commands: on, off, enable, disable, status, help");
+  console.println("Thermostat ready.");
+  console.println(String("URL: http://") + MDNS_HOSTNAME + ".local/");
+  console.println("Commands: on, off, enable, disable, status, help");
 
   Serial.println("Ready.");
   printFullStatus(Serial);
-  printFullStatus(WebSerial);
+  printFullStatus(console);
   applyState();
 }
 
@@ -480,10 +497,19 @@ void setup() {
 // ============================================================================
 
 void loop() {
-  // Flush buffered WebSerial output to connected clients
-  WebSerial.loop();
-
   const unsigned long now{millis()};
+
+  // Handle a command typed in the browser console
+  char consoleLine[sizeof(pendingConsoleLine)];
+  bool haveConsoleLine {false};
+  portENTER_CRITICAL(&consoleLineMux);
+  if (hasPendingConsoleLine) {
+    memcpy(consoleLine, pendingConsoleLine, sizeof(consoleLine));
+    hasPendingConsoleLine = false;
+    haveConsoleLine = true;
+  }
+  portEXIT_CRITICAL(&consoleLineMux);
+  if (haveConsoleLine) handleCommand(consoleLine);
 
   // Update button (handles debouncing and triggers callbacks)
   button.update();
@@ -527,7 +553,7 @@ void loop() {
         }
         Serial.println("Daily refresh complete.");
         printFullStatus(Serial);
-        printFullStatus(WebSerial);
+        printFullStatus(console);
       } else {
         Serial.println("Daily refresh failed, will retry next loop.");
       }
@@ -570,7 +596,7 @@ void loop() {
     if (cp >= 0 && !evaluatePeriodForecast(cp)) serialMsg += " [WARM PERIOD]";
     Serial.println(serialMsg);
 
-    // Verbose output for WebSerial
+    // Verbose output for the browser console
     String ws;
     ws += timeStr;
     ws += " | heater=";
@@ -602,8 +628,11 @@ void loop() {
     }
     ws += " | next=";
     ws += nextScheduleTransition();
-    WebSerial.println(ws);
+    console.println(ws);
   }
+
+  // Send buffered console output to connected browsers
+  console.loop();
 
   delay(TICK_PERIOD);
 }
